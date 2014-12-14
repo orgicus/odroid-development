@@ -96,6 +96,8 @@ public:
     };
 
     bool initialize(bool getDepth, bool getColor, bool setRegistration, bool setDepthColorSync);
+    bool initialize(int index,bool getDepth, bool getColor, bool setRegistration, bool setDepthColorSync);
+    bool initialize(char* file,bool getDepth, bool getColor, bool setRegistration, bool setDepthColorSync);
     bool isInitialized();
     bool isRunning();
     bool isImageRegistrationEnabled();
@@ -143,6 +145,302 @@ bool OpenNI2Grabber::initialize(bool getDepth = true, bool getColor = true, bool
     if (myDevice.open(openni::ANY_DEVICE) != openni::STATUS_OK)
     {
         std::cout << "Unable to initialize OpenNI device!" << std::endl;
+        openni::OpenNI::shutdown();
+        return false;
+    }
+
+    // initialize the stream pointer array
+    myGetDepth = getDepth;
+    myGetColor = getColor;
+    if(myGetDepth && myGetColor)
+    {
+        myNumStreams = 2;
+        myDepthStreamIndex = 0;
+        myColorStreamIndex = 1;
+    }
+    else if(myGetDepth && !myGetColor)
+    {
+        myNumStreams = 1;
+        myDepthStreamIndex = 0;
+    }
+    else if(!myGetDepth && myGetColor)
+    {
+        myNumStreams = 1;
+        myColorStreamIndex = 0;
+    }
+
+    // attempt to start stream acquisition
+    try
+    {
+        // initialize the depth stream if necessary
+        if(myGetDepth)
+        {
+            myDepthStream.create(myDevice, openni::SENSOR_DEPTH);
+            myDepthVideoMode = myDepthStream.getVideoMode();
+            myDepthVideoMode.setResolution(RESOLUTION_X_DEPTH, RESOLUTION_Y_DEPTH);
+            myDepthVideoMode.setFps(FPS_DEPTH);
+            myDepthStream.setVideoMode(myDepthVideoMode);
+            myDepthStream.setMirroringEnabled(false);
+
+            // update the pointer array
+            myStreams.push_back(&myDepthStream);
+        }
+
+        // initialize the color stream if necessary
+        if(myGetColor)
+        {
+            myColorStream.create(myDevice, openni::SENSOR_COLOR);
+            openni::VideoMode myColorVideoMode = myColorStream.getVideoMode();
+            myColorVideoMode.setResolution(RESOLUTION_X_COLOR, RESOLUTION_Y_COLOR);
+            myColorVideoMode.setFps(FPS_COLOR);
+            myColorStream.setVideoMode(myColorVideoMode);
+            myColorStream.setMirroringEnabled(false);
+
+            // update the pointer array
+            myStreams.push_back(&myColorStream);
+        }
+
+        // set depth color synchronization if necessary
+        if(setDepthColorSync & myGetDepth && myGetColor)
+        {
+            int status = myDevice.setDepthColorSyncEnabled(true);
+            if (status != openni::STATUS_OK)
+            {
+                std::cout << "Unable to set depth/color synchronization: " << openni::OpenNI::getExtendedError() << std::endl;
+                myIsDepthColorSyncEnabled = false;
+            }
+            else
+            {
+                myIsDepthColorSyncEnabled = true;
+                std::cout << "Depth/color synchronization enabled!" << std::endl;
+            }
+        }
+
+        // set depth to color registration mode
+        if(setRegistration && myDevice.isImageRegistrationModeSupported(openni::IMAGE_REGISTRATION_DEPTH_TO_COLOR))
+        {
+            int status = myDevice.setImageRegistrationMode(openni::IMAGE_REGISTRATION_DEPTH_TO_COLOR);
+            if (status != openni::STATUS_OK)
+            {
+                std::cout << "Unable to set registration mode: " << openni::OpenNI::getExtendedError() << std::endl;
+                myImageRegistrationEnabled = false;
+            }
+            else
+            {
+                myImageRegistrationEnabled = true;
+                std::cout << "Registration mode enabled!" << std::endl;
+            }
+        }
+        else
+        {
+            std::cout << "Registration not supported by this device!" << std::endl;
+            myImageRegistrationEnabled = false;
+        }
+
+        // streams opened with no error, return true
+        myIsInitialized = true;
+
+        return true;
+    }
+    catch(char* error)
+    {
+        // we encountered an error, return false
+        std::cout << "Exception occured while opening stream: " << error << std::endl;
+        myImageRegistrationEnabled = false;
+        myGetDepth = false;
+        myGetColor = false;
+        myIsInitialized = false;
+        myIsRunning = false;
+        myNumStreams = 0;
+        myDepthStreamIndex = 0;
+        myColorStreamIndex = 0;
+        myDevice.close();
+        openni::OpenNI::shutdown();
+
+        return false;
+    }
+}
+/***********************************************************************************************************************
+bool initialize(int index = 0, bool getDepth = true, bool getColor = true, bool setRegistration = true, bool setDepthColorSync = true)
+initialize the grabber for depth and/or color acquisition based on the sesor's index in the list of devices by URI
+***********************************************************************************************************************/
+bool OpenNI2Grabber::initialize(int index = 0,bool getDepth = true, bool getColor = true, bool setRegistration = true, bool setDepthColorSync = true)
+{
+    myImageRegistrationEnabled = false;
+    myGetDepth = false;
+    myGetColor = false;
+    myIsInitialized = false;
+    myIsRunning = false;
+    myNumStreams = 0;
+    myDepthStreamIndex = 0;
+    myColorStreamIndex = 0;
+
+    // return if no stream is specified
+    if(!getDepth && !getColor)
+    {
+        std::cout << "No acquisition streams specified! " << std::endl;
+        return false;
+    }
+
+    // initialize the OpenNI API
+    openni::OpenNI::initialize();
+    openni::Array<openni::DeviceInfo> listOfDevices;
+    openni::OpenNI::enumerateDevices(&listOfDevices); 
+    int numberOfDevices = listOfDevices.getSize();
+    // return false if unable to initialize the device
+    if( index < numberOfDevices){
+        if (myDevice.open(listOfDevices[index].getUri()) != openni::STATUS_OK)
+        {
+        std::cout << "Unable to initialize OpenNI device at index " << index << " with URI " << listOfDevices[index].getUri() << std::endl;
+        openni::OpenNI::shutdown();
+        return false;
+        }
+    }else{
+    std::cout << "Unable to initialize OpenNI device with supplied index " << index <<  "! The current maximum device index is " << (numberOfDevices-1) << std::endl;
+    openni::OpenNI::shutdown();
+    return false;
+    }
+
+    // initialize the stream pointer array
+    myGetDepth = getDepth;
+    myGetColor = getColor;
+    if(myGetDepth && myGetColor)
+    {
+        myNumStreams = 2;
+        myDepthStreamIndex = 0;
+        myColorStreamIndex = 1;
+    }
+    else if(myGetDepth && !myGetColor)
+    {
+        myNumStreams = 1;
+        myDepthStreamIndex = 0;
+    }
+    else if(!myGetDepth && myGetColor)
+    {
+        myNumStreams = 1;
+        myColorStreamIndex = 0;
+    }
+
+    // attempt to start stream acquisition
+    try
+    {
+        // initialize the depth stream if necessary
+        if(myGetDepth)
+        {
+            myDepthStream.create(myDevice, openni::SENSOR_DEPTH);
+            myDepthVideoMode = myDepthStream.getVideoMode();
+            myDepthVideoMode.setResolution(RESOLUTION_X_DEPTH, RESOLUTION_Y_DEPTH);
+            myDepthVideoMode.setFps(FPS_DEPTH);
+            myDepthStream.setVideoMode(myDepthVideoMode);
+            myDepthStream.setMirroringEnabled(false);
+
+            // update the pointer array
+            myStreams.push_back(&myDepthStream);
+        }
+
+        // initialize the color stream if necessary
+        if(myGetColor)
+        {
+            myColorStream.create(myDevice, openni::SENSOR_COLOR);
+            openni::VideoMode myColorVideoMode = myColorStream.getVideoMode();
+            myColorVideoMode.setResolution(RESOLUTION_X_COLOR, RESOLUTION_Y_COLOR);
+            myColorVideoMode.setFps(FPS_COLOR);
+            myColorStream.setVideoMode(myColorVideoMode);
+            myColorStream.setMirroringEnabled(false);
+
+            // update the pointer array
+            myStreams.push_back(&myColorStream);
+        }
+
+        // set depth color synchronization if necessary
+        if(setDepthColorSync & myGetDepth && myGetColor)
+        {
+            int status = myDevice.setDepthColorSyncEnabled(true);
+            if (status != openni::STATUS_OK)
+            {
+                std::cout << "Unable to set depth/color synchronization: " << openni::OpenNI::getExtendedError() << std::endl;
+                myIsDepthColorSyncEnabled = false;
+            }
+            else
+            {
+                myIsDepthColorSyncEnabled = true;
+                std::cout << "Depth/color synchronization enabled!" << std::endl;
+            }
+        }
+
+        // set depth to color registration mode
+        if(setRegistration && myDevice.isImageRegistrationModeSupported(openni::IMAGE_REGISTRATION_DEPTH_TO_COLOR))
+        {
+            int status = myDevice.setImageRegistrationMode(openni::IMAGE_REGISTRATION_DEPTH_TO_COLOR);
+            if (status != openni::STATUS_OK)
+            {
+                std::cout << "Unable to set registration mode: " << openni::OpenNI::getExtendedError() << std::endl;
+                myImageRegistrationEnabled = false;
+            }
+            else
+            {
+                myImageRegistrationEnabled = true;
+                std::cout << "Registration mode enabled!" << std::endl;
+            }
+        }
+        else
+        {
+            std::cout << "Registration not supported by this device!" << std::endl;
+            myImageRegistrationEnabled = false;
+        }
+
+        // streams opened with no error, return true
+        myIsInitialized = true;
+
+        return true;
+    }
+    catch(char* error)
+    {
+        // we encountered an error, return false
+        std::cout << "Exception occured while opening stream: " << error << std::endl;
+        myImageRegistrationEnabled = false;
+        myGetDepth = false;
+        myGetColor = false;
+        myIsInitialized = false;
+        myIsRunning = false;
+        myNumStreams = 0;
+        myDepthStreamIndex = 0;
+        myColorStreamIndex = 0;
+        myDevice.close();
+        openni::OpenNI::shutdown();
+
+        return false;
+    }
+}
+/***********************************************************************************************************************
+bool initialize(char* file, bool getDepth = true, bool getColor = true, bool setRegistration = true, bool setDepthColorSync = true)
+initialize the grabber for depth and/or color acquisition using a pre-recorded .oni file
+***********************************************************************************************************************/
+bool OpenNI2Grabber::initialize(char* file, bool getDepth = true, bool getColor = true, bool setRegistration = true, bool setDepthColorSync = true)
+{
+    myImageRegistrationEnabled = false;
+    myGetDepth = false;
+    myGetColor = false;
+    myIsInitialized = false;
+    myIsRunning = false;
+    myNumStreams = 0;
+    myDepthStreamIndex = 0;
+    myColorStreamIndex = 0;
+
+    // return if no stream is specified
+    if(!getDepth && !getColor)
+    {
+        std::cout << "No acquisition streams specified! " << std::endl;
+        return false;
+    }
+
+    // initialize the OpenNI API
+    openni::OpenNI::initialize();
+
+    // return false if unable to initialize the device
+    if (myDevice.open(file) != openni::STATUS_OK)
+    {
+        std::cout << "Unable to initialize OpenNI device using file " << file << std::endl;
         openni::OpenNI::shutdown();
         return false;
     }
